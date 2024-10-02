@@ -1,198 +1,196 @@
-# coding: utf-8
-__author__ = 'Roman Solovyev (ZFTurbo), IPPM RAS'
-
-if __name__ == '__main__':
-    import os
-
-    gpu_use = "0"
-    print('GPU use: {}'.format(gpu_use))
-    os.environ["CUDA_VISIBLE_DEVICES"] = "{}".format(gpu_use)
-
-import time
-import os
-import numpy as np
-from PyQt5.QtCore import *
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
 import sys
-from inference import predict_with_model, __VERSION__
+import os
+import time
+import numpy as np
 import torch
+from PyQt6.QtCore import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import *
+from inference import predict_with_model, __VERSION__
 
-
-root = dict()
-
+root = {}
 
 class Worker(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(int)
+    error = pyqtSignal(str)
 
     def __init__(self, options):
         super().__init__()
         self.options = options
 
     def run(self):
-        global root
-        # Here we pass the update_progress (uncalled!)
-        self.options['update_percent_func'] = self.update_progress
-        predict_with_model(self.options)
-        root['button_start'].setDisabled(False)
-        root['button_finish'].setDisabled(True)
-        root['start_proc'] = False
-        self.finished.emit()
+        try:
+            self.options['update_percent_func'] = self.update_progress
+            predict_with_model(self.options)
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
 
     def update_progress(self, percent):
         self.progress.emit(percent)
 
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.resize(400, 350)
+        self.setup_ui()
 
-class Ui_Dialog(object):
-    def setupUi(self, Dialog):
-        global root
+    def setup_ui(self):
+        layout = QVBoxLayout()
 
-        Dialog.setObjectName("Settings")
-        Dialog.resize(370, 320)
+        self.checkbox_cpu = QCheckBox("Use CPU instead of GPU")
+        self.checkbox_single_onnx = QCheckBox("Use single ONNX")
+        self.checkbox_large_gpu = QCheckBox("Use large GPU")
+        self.checkbox_kim_1 = QCheckBox("Use old Kim Vocal model")
+        self.checkbox_only_vocals = QCheckBox("Generate only vocals/instrumental")
 
-        self.checkbox_cpu = QCheckBox("Use CPU instead of GPU?", Dialog)
-        self.checkbox_cpu.move(30, 10)
-        self.checkbox_cpu.resize(320, 40)
-        if root['cpu']:
-            self.checkbox_cpu.setChecked(True)
+        self.chunk_size = QLineEdit()
+        self.chunk_size.setValidator(QIntValidator(100000, 10000000))
+        self.overlap_large = QLineEdit()
+        self.overlap_large.setValidator(QDoubleValidator(0.001, 0.999, 3))
+        self.overlap_small = QLineEdit()
+        self.overlap_small.setValidator(QDoubleValidator(0.001, 0.999, 3))
 
-        self.checkbox_single_onnx = QCheckBox("Use single ONNX?", Dialog)
-        self.checkbox_single_onnx.move(30, 40)
-        self.checkbox_single_onnx.resize(320, 40)
-        if root['single_onnx']:
-            self.checkbox_single_onnx.setChecked(True)
+        form_layout = QFormLayout()
+        form_layout.addRow("Chunk size:", self.chunk_size)
+        form_layout.addRow("Overlap large:", self.overlap_large)
+        form_layout.addRow("Overlap small:", self.overlap_small)
 
-        self.checkbox_large_gpu = QCheckBox("Use large GPU?", Dialog)
-        self.checkbox_large_gpu.move(30, 70)
-        self.checkbox_large_gpu.resize(320, 40)
-        if root['large_gpu']:
-            self.checkbox_large_gpu.setChecked(True)
+        button_layout = QHBoxLayout()
+        self.button_save = QPushButton("Save settings")
+        self.button_cancel = QPushButton("Cancel")
+        button_layout.addWidget(self.button_save)
+        button_layout.addWidget(self.button_cancel)
 
-        self.checkbox_kim_1 = QCheckBox("Use old Kim Vocal model?", Dialog)
-        self.checkbox_kim_1.move(30, 100)
-        self.checkbox_kim_1.resize(320, 40)
-        if root['use_kim_model_1']:
-            self.checkbox_kim_1.setChecked(True)
+        layout.addWidget(self.checkbox_cpu)
+        layout.addWidget(self.checkbox_single_onnx)
+        layout.addWidget(self.checkbox_large_gpu)
+        layout.addWidget(self.checkbox_kim_1)
+        layout.addWidget(self.checkbox_only_vocals)
+        layout.addLayout(form_layout)
+        layout.addLayout(button_layout)
 
-        self.checkbox_only_vocals = QCheckBox("Generate only vocals/instrumental?", Dialog)
-        self.checkbox_only_vocals.move(30, 130)
-        self.checkbox_only_vocals.resize(320, 40)
-        if root['only_vocals']:
-            self.checkbox_only_vocals.setChecked(True)
+        self.setLayout(layout)
 
-        self.chunk_size_label = QLabel(Dialog)
-        self.chunk_size_label.setText('Chunk size')
-        self.chunk_size_label.move(30, 160)
-        self.chunk_size_label.resize(320, 40)
+        self.button_save.clicked.connect(self.save_settings)
+        self.button_cancel.clicked.connect(self.reject)
 
-        self.chunk_size_valid = QIntValidator(bottom=100000, top=10000000)
-        self.chunk_size = QLineEdit(Dialog)
-        self.chunk_size.setFixedWidth(140)
-        self.chunk_size.move(130, 170)
-        self.chunk_size.setValidator(self.chunk_size_valid)
+    def load_settings(self):
+        self.checkbox_cpu.setChecked(root['cpu'])
+        self.checkbox_single_onnx.setChecked(root['single_onnx'])
+        self.checkbox_large_gpu.setChecked(root['large_gpu'])
+        self.checkbox_kim_1.setChecked(root['use_kim_model_1'])
+        self.checkbox_only_vocals.setChecked(root['only_vocals'])
         self.chunk_size.setText(str(root['chunk_size']))
-
-        self.overlap_large_label = QLabel(Dialog)
-        self.overlap_large_label.setText('Overlap large')
-        self.overlap_large_label.move(30, 190)
-        self.overlap_large_label.resize(320, 40)
-
-        self.overlap_large_valid = QDoubleValidator(bottom=0.001, top=0.999, decimals=10)
-        self.overlap_large_valid.setNotation(QDoubleValidator.Notation.StandardNotation)
-        self.overlap_large = QLineEdit(Dialog)
-        self.overlap_large.setFixedWidth(140)
-        self.overlap_large.move(130, 200)
-        self.overlap_large.setValidator(self.overlap_large_valid)
         self.overlap_large.setText(str(root['overlap_large']))
-
-        self.overlap_small_label = QLabel(Dialog)
-        self.overlap_small_label.setText('Overlap small')
-        self.overlap_small_label.move(30, 220)
-        self.overlap_small_label.resize(320, 40)
-
-        self.overlap_small_valid = QDoubleValidator(0.001, 0.999, 10)
-        self.overlap_small_valid.setNotation(QDoubleValidator.Notation.StandardNotation)
-        self.overlap_small = QLineEdit(Dialog)
-        self.overlap_small.setFixedWidth(140)
-        self.overlap_small.move(130, 230)
-        self.overlap_small.setValidator(self.overlap_small_valid)
         self.overlap_small.setText(str(root['overlap_small']))
 
-        self.pushButton_save = QPushButton(Dialog)
-        self.pushButton_save.setObjectName("pushButton_save")
-        self.pushButton_save.move(30, 280)
-        self.pushButton_save.resize(150, 35)
-
-        self.pushButton_cancel = QPushButton(Dialog)
-        self.pushButton_cancel.setObjectName("pushButton_cancel")
-        self.pushButton_cancel.move(190, 280)
-        self.pushButton_cancel.resize(150, 35)
-
-        self.retranslateUi(Dialog)
-        QtCore.QMetaObject.connectSlotsByName(Dialog)
-        self.Dialog = Dialog
-
-        # connect the two functions
-        self.pushButton_save.clicked.connect(self.return_save)
-        self.pushButton_cancel.clicked.connect(self.return_cancel)
-
-    def retranslateUi(self, Dialog):
-        _translate = QtCore.QCoreApplication.translate
-        Dialog.setWindowTitle(_translate("Settings", "Settings"))
-        self.pushButton_cancel.setText(_translate("Settings", "Cancel"))
-        self.pushButton_save.setText(_translate("Settings", "Save settings"))
-
-    def return_save(self):
-        global root
-        # print("save")
+    def save_settings(self):
         root['cpu'] = self.checkbox_cpu.isChecked()
         root['single_onnx'] = self.checkbox_single_onnx.isChecked()
         root['large_gpu'] = self.checkbox_large_gpu.isChecked()
         root['use_kim_model_1'] = self.checkbox_kim_1.isChecked()
         root['only_vocals'] = self.checkbox_only_vocals.isChecked()
+        root['chunk_size'] = int(self.chunk_size.text())
+        root['overlap_large'] = float(self.overlap_large.text())
+        root['overlap_small'] = float(self.overlap_small.text())
+        self.accept()
 
-        chunk_size_text = self.chunk_size.text()
-        state = self.chunk_size_valid.validate(chunk_size_text, 0)
-        if state[0] == QValidator.State.Acceptable:
-            root['chunk_size'] = chunk_size_text
-
-        overlap_large_text = self.overlap_large.text()
-        # locale problems... it wants comma instead of dot
-        if 0:
-            state = self.overlap_large_valid.validate(overlap_large_text, 0)
-            if state[0] == QValidator.State.Acceptable:
-                root['overlap_large'] = float(overlap_large_text)
-        else:
-            root['overlap_large'] = float(overlap_large_text)
-
-        overlap_small_text = self.overlap_small.text()
-        if 0:
-            state = self.overlap_small_valid.validate(overlap_small_text, 0)
-            if state[0] == QValidator.State.Acceptable:
-                root['overlap_small'] = float(overlap_small_text)
-        else:
-            root['overlap_small'] = float(overlap_small_text)
-
-        self.Dialog.close()
-
-    def return_cancel(self):
-        global root
-        # print("cancel")
-        self.Dialog.close()
-
-
-class MyWidget(QWidget):
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.initUI()
-
-    def initUI(self):
-        self.resize(560, 360)
-        self.move(300, 300)
-        self.setWindowTitle('MVSEP music separation model')
+        self.setWindowTitle('MVSEP Music Separation Tool')
         self.setAcceptDrops(True)
+        self.setup_ui()
+
+    def setup_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+
+        # Input files section
+        input_group = QGroupBox("Input Files")
+        input_layout = QVBoxLayout()
+        self.button_select_input_files = QPushButton("Select Input Files")
+        self.button_select_input_files.clicked.connect(self.dialog_select_input_files)
+        self.input_files_list = QListWidget()
+        self.input_files_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        input_layout.addWidget(self.button_select_input_files)
+        input_layout.addWidget(self.input_files_list)
+        input_group.setLayout(input_layout)
+
+        # Output folder section
+        output_group = QGroupBox("Output Folder")
+        output_layout = QHBoxLayout()
+        self.output_folder_line_edit = QLineEdit()
+        self.output_folder_line_edit.setReadOnly(True)
+        self.button_select_output_folder = QPushButton("Select Folder")
+        self.button_select_output_folder.clicked.connect(self.dialog_select_output_folder)
+        output_layout.addWidget(self.output_folder_line_edit)
+        output_layout.addWidget(self.button_select_output_folder)
+        output_group.setLayout(output_layout)
+
+        # Progress section
+        progress_group = QGroupBox("Progress")
+        progress_layout = QVBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.progress_label = QLabel("Ready")
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.progress_label)
+        progress_group.setLayout(progress_layout)
+
+        # Control buttons
+        button_layout = QHBoxLayout()
+        self.button_start = QPushButton('Start Separation')
+        self.button_start.clicked.connect(self.execute_separation)
+        self.button_stop = QPushButton('Stop')
+        self.button_stop.clicked.connect(self.stop_separation)
+        self.button_stop.setEnabled(False)
+        self.button_settings = QPushButton('Settings')
+        self.button_settings.clicked.connect(self.open_settings)
+        button_layout.addWidget(self.button_start)
+        button_layout.addWidget(self.button_stop)
+        button_layout.addWidget(self.button_settings)
+
+        # Add all sections to main layout
+        layout.addWidget(input_group)
+        layout.addWidget(output_group)
+        layout.addWidget(progress_group)
+        layout.addLayout(button_layout)
+
+        # Status bar
+        self.statusBar().showMessage(f'MVSEP v{__VERSION__}')
+
+        # Menu
+        self.setup_menu()
+
+    def setup_menu(self):
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu('File')
+        
+        open_action = QAction('Open Files', self)
+        open_action.setShortcut('Ctrl+O')
+        open_action.triggered.connect(self.dialog_select_input_files)
+        file_menu.addAction(open_action)
+        
+        exit_action = QAction('Exit', self)
+        exit_action.setShortcut('Ctrl+Q')
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        help_menu = menubar.addMenu('Help')
+        about_action = QAction('About', self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+
+    def show_about_dialog(self):
+        QMessageBox.about(self, "About MVSEP",
+                          f"MVSEP Music Separation Tool v{__VERSION__}\n\n"
+                          "Developed by Fonk"
+                          "Copyright © 2024")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -201,27 +199,32 @@ class MyWidget(QWidget):
             event.ignore()
 
     def dropEvent(self, event):
-        global root
         files = [u.toLocalFile() for u in event.mimeData().urls()]
-        txt = ''
-        root['input_files'] = []
-        for f in files:
-            root['input_files'].append(f)
-            txt += f + '\n'
-        root['input_files_list_text_area'].insertPlainText(txt)
-        root['progress_bar'].setValue(0)
+        self.add_input_files(files)
 
-    def execute_long_task(self):
-        global root
+    def add_input_files(self, files):
+        for file in files:
+            if file.lower().endswith(('.wav', '.mp3', '.flac')):
+                if self.input_files_list.findItems(file, Qt.MatchFlag.MatchExactly) == []:
+                    self.input_files_list.addItem(file)
+        root['input_files'] = [self.input_files_list.item(i).text() for i in range(self.input_files_list.count())]
+        self.update_start_button_state()
 
-        if len(root['input_files']) == 0 and 1:
-            QMessageBox.about(root['w'], "Error", "No input files specified!")
+    def update_start_button_state(self):
+        self.button_start.setEnabled(bool(root['input_files']) and bool(root['output_folder']))
+
+    def execute_separation(self):
+        if not root['input_files']:
+            QMessageBox.warning(self, "Error", "No input files specified!")
+            return
+        if not root['output_folder']:
+            QMessageBox.warning(self, "Error", "No output folder specified!")
             return
 
-        root['progress_bar'].show()
-        root['button_start'].setDisabled(True)
-        root['button_finish'].setDisabled(False)
-        root['start_proc'] = True
+        self.button_start.setEnabled(False)
+        self.button_stop.setEnabled(True)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Processing...")
 
         options = {
             'input_audio': root['input_files'],
@@ -236,7 +239,6 @@ class MyWidget(QWidget):
             'only_vocals': root['only_vocals'],
         }
 
-        self.update_progress(0)
         self.thread = QThread()
         self.worker = Worker(options)
         self.worker.moveToThread(self.thread)
@@ -246,67 +248,58 @@ class MyWidget(QWidget):
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         self.worker.progress.connect(self.update_progress)
+        self.worker.error.connect(self.show_error)
+
+        self.thread.finished.connect(self.separation_finished)
 
         self.thread.start()
 
     def stop_separation(self):
-        global root
-        self.thread.terminate()
-        root['button_start'].setDisabled(False)
-        root['button_finish'].setDisabled(True)
-        root['start_proc'] = False
-        root['progress_bar'].hide()
+        if hasattr(self, 'thread') and self.thread.isRunning():
+            self.thread.requestInterruption()
+            self.thread.quit()
+            self.thread.wait()
+        self.separation_finished()
+
+    def separation_finished(self):
+        self.button_start.setEnabled(True)
+        self.button_stop.setEnabled(False)
+        self.progress_label.setText("Finished")
+        QMessageBox.information(self, "Process Completed", "Audio separation completed successfully!")
 
     def update_progress(self, progress):
-        global root
-        root['progress_bar'].setValue(progress)
+        self.progress_bar.setValue(progress)
+
+    def show_error(self, error_message):
+        QMessageBox.critical(self, "Error", f"An error occurred: {error_message}")
+        self.separation_finished()
 
     def open_settings(self):
-        global root
-        dialog = QDialog()
-        dialog.ui = Ui_Dialog()
-        dialog.ui.setupUi(dialog)
-        dialog.exec_()
+        dialog = SettingsDialog(self)
+        dialog.load_settings()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            pass
 
+    def dialog_select_input_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select input files",
+            "",
+            "Audio Files (*.wav *.mp3 *.flac);;All Files (*)"
+        )
+        if files:
+            self.add_input_files(files)
 
-def dialog_select_input_files():
-    global root
-    files, _ = QFileDialog.getOpenFileNames(
-        None,
-        "QFileDialog.getOpenFileNames()",
-        "",
-        "All Files (*);;Audio Files (*.wav, *.mp3, *.flac)",
-    )
-    if files:
-        txt = ''
-        root['input_files'] = []
-        for f in files:
-            root['input_files'].append(f)
-            txt += f + '\n'
-        root['input_files_list_text_area'].insertPlainText(txt)
-        root['progress_bar'].setValue(0)
-    return files
+    def dialog_select_output_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
+        if folder:
+            root['output_folder'] = folder
+            self.output_folder_line_edit.setText(folder)
+            self.update_start_button_state()
 
-
-def dialog_select_output_folder():
-    global root
-    foldername = QFileDialog.getExistingDirectory(
-        None,
-        "Select Directory"
-    )
-    root['output_folder'] = foldername + '/'
-    root['output_folder_line_edit'].setText(root['output_folder'])
-    return foldername
-
-
-def create_dialog():
-    global root
-    app = QApplication(sys.argv)
-
-    w = MyWidget()
-
+def initialize_settings():
     root['input_files'] = []
-    root['output_folder'] = os.path.dirname(os.path.abspath(__file__)) + '/results/'
+    root['output_folder'] = ''
     root['cpu'] = False
     root['large_gpu'] = False
     root['single_onnx'] = False
@@ -316,96 +309,26 @@ def create_dialog():
     root['use_kim_model_1'] = False
     root['only_vocals'] = False
 
-    t = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024 * 1024)
-    if t > 11.5:
-        print('You have enough GPU memory ({:.2f} GB), so we set fast GPU mode. You can change in settings!'.format(t))
-        root['large_gpu'] = True
-        root['single_onnx'] = False
-    elif t < 8:
-        root['large_gpu'] = False
-        root['single_onnx'] = True
-        root['chunk_size'] = 500000
+    if torch.cuda.is_available():
+        t = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024 * 1024)
+        if t > 11.5:
+            print(f'You have enough GPU memory ({t:.2f} GB), so we set fast GPU mode. You can change in settings!')
+            root['large_gpu'] = True
+            root['single_onnx'] = False
+        elif t < 8:
+            root['large_gpu'] = False
+            root['single_onnx'] = True
+            root['chunk_size'] = 500000
 
-    button_select_input_files = QPushButton(w)
-    button_select_input_files.setText("Input audio files")
-    button_select_input_files.clicked.connect(dialog_select_input_files)
-    button_select_input_files.setFixedHeight(35)
-    button_select_input_files.setFixedWidth(150)
-    button_select_input_files.move(30, 20)
+def main():
+    print(f'Version: {__VERSION__}')
+    initialize_settings()
 
-    input_files_list_text_area = QTextEdit(w)
-    input_files_list_text_area.setReadOnly(True)
-    input_files_list_text_area.setLineWrapMode(QTextEdit.NoWrap)
-    font = input_files_list_text_area.font()
-    font.setFamily("Courier")
-    font.setPointSize(10)
-    input_files_list_text_area.move(30, 60)
-    input_files_list_text_area.resize(500, 100)
-
-    button_select_output_folder = QPushButton(w)
-    button_select_output_folder.setText("Output folder")
-    button_select_output_folder.setFixedHeight(35)
-    button_select_output_folder.setFixedWidth(150)
-    button_select_output_folder.clicked.connect(dialog_select_output_folder)
-    button_select_output_folder.move(30, 180)
-
-    output_folder_line_edit = QLineEdit(w)
-    output_folder_line_edit.setReadOnly(True)
-    font = output_folder_line_edit.font()
-    font.setFamily("Courier")
-    font.setPointSize(10)
-    output_folder_line_edit.move(30, 220)
-    output_folder_line_edit.setFixedWidth(500)
-    output_folder_line_edit.setText(root['output_folder'])
-
-    progress_bar = QProgressBar(w)
-    # progress_bar.move(30, 310)
-    progress_bar.setValue(0)
-    progress_bar.setGeometry(30, 310, 500, 35)
-    progress_bar.setAlignment(QtCore.Qt.AlignCenter)
-    progress_bar.hide()
-    root['progress_bar'] = progress_bar
-
-    button_start = QPushButton('Start separation', w)
-    button_start.clicked.connect(w.execute_long_task)
-    button_start.setFixedHeight(35)
-    button_start.setFixedWidth(150)
-    button_start.move(30, 270)
-
-    button_finish = QPushButton('Stop separation', w)
-    button_finish.clicked.connect(w.stop_separation)
-    button_finish.setFixedHeight(35)
-    button_finish.setFixedWidth(150)
-    button_finish.move(200, 270)
-    button_finish.setDisabled(True)
-
-    button_settings = QPushButton('⚙', w)
-    button_settings.clicked.connect(w.open_settings)
-    button_settings.setFixedHeight(35)
-    button_settings.setFixedWidth(35)
-    button_settings.move(495, 270)
-    button_settings.setDisabled(False)
-
-    mvsep_link = QLabel(w)
-    mvsep_link.setOpenExternalLinks(True)
-    font = mvsep_link.font()
-    font.setFamily("Courier")
-    font.setPointSize(10)
-    mvsep_link.move(415, 30)
-    mvsep_link.setText('Powered by <a href="https://mvsep.com">MVSep.com</a>')
-
-    root['w'] = w
-    root['input_files_list_text_area'] = input_files_list_text_area
-    root['output_folder_line_edit'] = output_folder_line_edit
-    root['button_start'] = button_start
-    root['button_finish'] = button_finish
-    root['button_settings'] = button_settings
-
-    # w.showMaximized()
-    w.show()
-    sys.exit(app.exec_())
-
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
 
 if __name__ == '__main__':
-    print('Version: {}'.format(__VERSION__))
-    create_dialog()
+    main()
