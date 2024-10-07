@@ -44,8 +44,7 @@ Quality comparison with best separation models performed on [MultiSong Dataset](
 
 ![image](https://github.com/user-attachments/assets/72e99ccb-3daf-4380-b9b0-af93f0fe375c)
 
-* Script for GUI (based on PyQt5): [gui.py](gui.py).
-* You can download [standalone program for Windows here](https://github.com/ZFTurbo/MVSEP-MDX23-music-separation-model/releases/download/v1.0.1/MVSep-MDX23_v1.0.1.zip) (~730 MB). Unzip archive and to start program double click `run.bat`. On first run it will download pytorch with CUDA support (~2.8 GB) and some Neural Net models.
+* Script for GUI (based on PyQt6): [gui.py](gui.py).
 * Program will download all needed neural net models from internet at the first run.
 * GUI supports Drag & Drop of multiple files.
 * Progress bar available.
