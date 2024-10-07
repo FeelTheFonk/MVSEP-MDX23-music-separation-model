@@ -1,6 +1,5 @@
 import sys
 import os
-import time
 import numpy as np
 import torch
 from PyQt6.QtCore import *
@@ -18,17 +17,23 @@ class Worker(QObject):
     def __init__(self, options):
         super().__init__()
         self.options = options
+        self._is_running = True
 
     def run(self):
         try:
             self.options['update_percent_func'] = self.update_progress
             predict_with_model(self.options)
-            self.finished.emit()
+            if self._is_running:
+                self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))
 
     def update_progress(self, percent):
-        self.progress.emit(percent)
+        if self._is_running:
+            self.progress.emit(percent)
+
+    def stop(self):
+        self._is_running = False
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -39,7 +44,6 @@ class SettingsDialog(QDialog):
 
     def setup_ui(self):
         layout = QVBoxLayout()
-
         self.checkbox_cpu = QCheckBox("Use CPU instead of GPU")
         self.checkbox_single_onnx = QCheckBox("Use single ONNX")
         self.checkbox_large_gpu = QCheckBox("Use large GPU")
@@ -88,15 +92,28 @@ class SettingsDialog(QDialog):
         self.overlap_small.setText(str(root['overlap_small']))
 
     def save_settings(self):
-        root['cpu'] = self.checkbox_cpu.isChecked()
-        root['single_onnx'] = self.checkbox_single_onnx.isChecked()
-        root['large_gpu'] = self.checkbox_large_gpu.isChecked()
-        root['use_kim_model_1'] = self.checkbox_kim_1.isChecked()
-        root['only_vocals'] = self.checkbox_only_vocals.isChecked()
-        root['chunk_size'] = int(self.chunk_size.text())
-        root['overlap_large'] = float(self.overlap_large.text())
-        root['overlap_small'] = float(self.overlap_small.text())
-        self.accept()
+        try:
+            chunk_size = int(self.chunk_size.text())
+            overlap_large = float(self.overlap_large.text())
+            overlap_small = float(self.overlap_small.text())
+            if not (100000 <= chunk_size <= 10000000):
+                raise ValueError("Chunk size must be between 100,000 and 10,000,000")
+            if not (0.001 <= overlap_large <= 0.999):
+                raise ValueError("Overlap large must be between 0.001 and 0.999")
+            if not (0.001 <= overlap_small <= 0.999):
+                raise ValueError("Overlap small must be between 0.001 and 0.999")
+
+            root['cpu'] = self.checkbox_cpu.isChecked()
+            root['single_onnx'] = self.checkbox_single_onnx.isChecked()
+            root['large_gpu'] = self.checkbox_large_gpu.isChecked()
+            root['use_kim_model_1'] = self.checkbox_kim_1.isChecked()
+            root['only_vocals'] = self.checkbox_only_vocals.isChecked()
+            root['chunk_size'] = chunk_size
+            root['overlap_large'] = overlap_large
+            root['overlap_small'] = overlap_small
+            self.accept()
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Input", str(e))
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -110,7 +127,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
 
-        # Input files section
         input_group = QGroupBox("Input Files")
         input_layout = QVBoxLayout()
         self.button_select_input_files = QPushButton("Select Input Files")
@@ -121,7 +137,6 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.input_files_list)
         input_group.setLayout(input_layout)
 
-        # Output folder section
         output_group = QGroupBox("Output Folder")
         output_layout = QHBoxLayout()
         self.output_folder_line_edit = QLineEdit()
@@ -132,7 +147,6 @@ class MainWindow(QMainWindow):
         output_layout.addWidget(self.button_select_output_folder)
         output_group.setLayout(output_layout)
 
-        # Progress section
         progress_group = QGroupBox("Progress")
         progress_layout = QVBoxLayout()
         self.progress_bar = QProgressBar()
@@ -142,7 +156,6 @@ class MainWindow(QMainWindow):
         progress_layout.addWidget(self.progress_label)
         progress_group.setLayout(progress_layout)
 
-        # Control buttons
         button_layout = QHBoxLayout()
         self.button_start = QPushButton('Start Separation')
         self.button_start.clicked.connect(self.execute_separation)
@@ -155,27 +168,23 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.button_stop)
         button_layout.addWidget(self.button_settings)
 
-        # Add all sections to main layout
         layout.addWidget(input_group)
         layout.addWidget(output_group)
         layout.addWidget(progress_group)
         layout.addLayout(button_layout)
 
-        # Status bar
         self.statusBar().showMessage(f'MVSEP v{__VERSION__}')
-
-        # Menu
         self.setup_menu()
 
     def setup_menu(self):
         menubar = self.menuBar()
         file_menu = menubar.addMenu('File')
-        
+
         open_action = QAction('Open Files', self)
         open_action.setShortcut('Ctrl+O')
         open_action.triggered.connect(self.dialog_select_input_files)
         file_menu.addAction(open_action)
-        
+
         exit_action = QAction('Exit', self)
         exit_action.setShortcut('Ctrl+Q')
         exit_action.triggered.connect(self.close)
@@ -189,12 +198,16 @@ class MainWindow(QMainWindow):
     def show_about_dialog(self):
         QMessageBox.about(self, "About MVSEP",
                           f"MVSEP Music Separation Tool v{__VERSION__}\n\n"
-                          "Developed by Fonk"
+                          "Enhanced by Fonk\n"
                           "Copyright © 2024")
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
-            event.accept()
+            valid = any(u.toLocalFile().lower().endswith(('.wav', '.mp3', '.flac')) for u in event.mimeData().urls())
+            if valid:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
         else:
             event.ignore()
 
@@ -204,8 +217,8 @@ class MainWindow(QMainWindow):
 
     def add_input_files(self, files):
         for file in files:
-            if file.lower().endswith(('.wav', '.mp3', '.flac')):
-                if self.input_files_list.findItems(file, Qt.MatchFlag.MatchExactly) == []:
+            if os.path.isfile(file) and file.lower().endswith(('.wav', '.mp3', '.flac')):
+                if not self.input_files_list.findItems(file, Qt.MatchFlag.MatchExactly):
                     self.input_files_list.addItem(file)
         root['input_files'] = [self.input_files_list.item(i).text() for i in range(self.input_files_list.count())]
         self.update_start_button_state()
@@ -249,14 +262,14 @@ class MainWindow(QMainWindow):
         self.thread.finished.connect(self.thread.deleteLater)
         self.worker.progress.connect(self.update_progress)
         self.worker.error.connect(self.show_error)
-
         self.thread.finished.connect(self.separation_finished)
 
         self.thread.start()
 
     def stop_separation(self):
-        if hasattr(self, 'thread') and self.thread.isRunning():
-            self.thread.requestInterruption()
+        if hasattr(self, 'worker'):
+            self.worker.stop()
+        if hasattr(self, 'thread'):
             self.thread.quit()
             self.thread.wait()
         self.separation_finished()
@@ -310,20 +323,17 @@ def initialize_settings():
     root['only_vocals'] = False
 
     if torch.cuda.is_available():
-        t = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024 * 1024)
-        if t > 11.5:
-            print(f'You have enough GPU memory ({t:.2f} GB), so we set fast GPU mode. You can change in settings!')
+        total_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        if total_memory > 11.5:
             root['large_gpu'] = True
             root['single_onnx'] = False
-        elif t < 8:
+        elif total_memory < 8:
             root['large_gpu'] = False
             root['single_onnx'] = True
-            root['chunk_size'] = 500000
 
 def main():
     print(f'Version: {__VERSION__}')
     initialize_settings()
-
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     window = MainWindow()
