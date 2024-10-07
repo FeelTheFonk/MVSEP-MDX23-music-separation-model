@@ -1,13 +1,38 @@
 import sys
 import os
-import numpy as np
-import torch
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import *
 from inference import predict_with_model, __VERSION__
+import torch
 
 root = {}
+
+class AudioFileModel(QAbstractListModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.audio_files = []
+
+    def data(self, index, role):
+        if role == Qt.ItemDataRole.DisplayRole:
+            return os.path.basename(self.audio_files[index.row()])
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            return self.audio_files[index.row()]
+
+    def rowCount(self, index):
+        return len(self.audio_files)
+
+    def add_files(self, files):
+        self.beginInsertRows(QModelIndex(), len(self.audio_files), len(self.audio_files) + len(files) - 1)
+        self.audio_files.extend(files)
+        self.endInsertRows()
+
+    def remove_files(self, indices):
+        indices.sort(reverse=True)
+        for index in indices:
+            self.beginRemoveRows(QModelIndex(), index, index)
+            del self.audio_files[index]
+            self.endRemoveRows()
 
 class Worker(QObject):
     finished = pyqtSignal()
@@ -120,7 +145,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle('MVSEP Music Separation Tool')
         self.setAcceptDrops(True)
+        self.audio_model = AudioFileModel()
         self.setup_ui()
+        self.load_theme()
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -129,11 +156,19 @@ class MainWindow(QMainWindow):
 
         input_group = QGroupBox("Input Files")
         input_layout = QVBoxLayout()
+        button_layout = QHBoxLayout()
         self.button_select_input_files = QPushButton("Select Input Files")
+        self.button_select_input_files.setIcon(QIcon.fromTheme("document-open"))
         self.button_select_input_files.clicked.connect(self.dialog_select_input_files)
-        self.input_files_list = QListWidget()
+        self.button_remove_selected = QPushButton("Remove Selected")
+        self.button_remove_selected.setIcon(QIcon.fromTheme("edit-delete"))
+        self.button_remove_selected.clicked.connect(self.remove_selected_files)
+        button_layout.addWidget(self.button_select_input_files)
+        button_layout.addWidget(self.button_remove_selected)
+        self.input_files_list = QListView()
+        self.input_files_list.setModel(self.audio_model)
         self.input_files_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        input_layout.addWidget(self.button_select_input_files)
+        input_layout.addLayout(button_layout)
         input_layout.addWidget(self.input_files_list)
         input_group.setLayout(input_layout)
 
@@ -142,6 +177,7 @@ class MainWindow(QMainWindow):
         self.output_folder_line_edit = QLineEdit()
         self.output_folder_line_edit.setReadOnly(True)
         self.button_select_output_folder = QPushButton("Select Folder")
+        self.button_select_output_folder.setIcon(QIcon.fromTheme("folder"))
         self.button_select_output_folder.clicked.connect(self.dialog_select_output_folder)
         output_layout.addWidget(self.output_folder_line_edit)
         output_layout.addWidget(self.button_select_output_folder)
@@ -158,11 +194,14 @@ class MainWindow(QMainWindow):
 
         button_layout = QHBoxLayout()
         self.button_start = QPushButton('Start Separation')
+        self.button_start.setIcon(QIcon.fromTheme("media-playback-start"))
         self.button_start.clicked.connect(self.execute_separation)
         self.button_stop = QPushButton('Stop')
+        self.button_stop.setIcon(QIcon.fromTheme("media-playback-stop"))
         self.button_stop.clicked.connect(self.stop_separation)
         self.button_stop.setEnabled(False)
         self.button_settings = QPushButton('Settings')
+        self.button_settings.setIcon(QIcon.fromTheme("preferences-system"))
         self.button_settings.clicked.connect(self.open_settings)
         button_layout.addWidget(self.button_start)
         button_layout.addWidget(self.button_stop)
@@ -190,6 +229,12 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
+        view_menu = menubar.addMenu('View')
+        toggle_theme_action = QAction('Toggle Theme', self)
+        toggle_theme_action.setShortcut('Ctrl+T')
+        toggle_theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(toggle_theme_action)
+
         help_menu = menubar.addMenu('Help')
         about_action = QAction('About', self)
         about_action.triggered.connect(self.show_about_dialog)
@@ -201,13 +246,45 @@ class MainWindow(QMainWindow):
                           "Enhanced by Fonk\n"
                           "Copyright © 2024")
 
+    def load_theme(self):
+        if root.get('dark_theme', False):
+            self.set_dark_theme()
+        else:
+            self.set_light_theme()
+
+    def toggle_theme(self):
+        root['dark_theme'] = not root.get('dark_theme', False)
+        self.load_theme()
+
+    def set_dark_theme(self):
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+        palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
+        palette.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+        palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
+        palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
+        palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
+        palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+        palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
+        palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
+        palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+        palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.black)
+        self.setPalette(palette)
+
+    def set_light_theme(self):
+        self.setPalette(self.style().standardPalette())
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
-            valid = any(u.toLocalFile().lower().endswith(('.wav', '.mp3', '.flac')) for u in event.mimeData().urls())
-            if valid:
-                event.acceptProposedAction()
-            else:
-                event.ignore()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
         else:
             event.ignore()
 
@@ -216,11 +293,16 @@ class MainWindow(QMainWindow):
         self.add_input_files(files)
 
     def add_input_files(self, files):
-        for file in files:
-            if os.path.isfile(file) and file.lower().endswith(('.wav', '.mp3', '.flac')):
-                if not self.input_files_list.findItems(file, Qt.MatchFlag.MatchExactly):
-                    self.input_files_list.addItem(file)
-        root['input_files'] = [self.input_files_list.item(i).text() for i in range(self.input_files_list.count())]
+        valid_files = [f for f in files if os.path.isfile(f) and f.lower().endswith(('.wav', '.mp3', '.flac'))]
+        if valid_files:
+            self.audio_model.add_files(valid_files)
+            root['input_files'] = self.audio_model.audio_files
+            self.update_start_button_state()
+
+    def remove_selected_files(self):
+        indices = [index.row() for index in self.input_files_list.selectedIndexes()]
+        self.audio_model.remove_files(indices)
+        root['input_files'] = self.audio_model.audio_files
         self.update_start_button_state()
 
     def update_start_button_state(self):
@@ -316,11 +398,12 @@ def initialize_settings():
     root['cpu'] = False
     root['large_gpu'] = False
     root['single_onnx'] = False
-    root['chunk_size'] = 1000000
-    root['overlap_large'] = 0.6
-    root['overlap_small'] = 0.5
+    root['chunk_size'] = 500000
+    root['overlap_large'] = 1
+    root['overlap_small'] = 1
     root['use_kim_model_1'] = False
     root['only_vocals'] = False
+    root['dark_theme'] = True
 
     if torch.cuda.is_available():
         total_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
