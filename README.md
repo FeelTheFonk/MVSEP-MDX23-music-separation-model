@@ -14,8 +14,8 @@ With this command audios with names "mixture1.wav" and "mixture2.wav" will be pr
 * `--input_audio` - input audio location. You can provide multiple files at once. **Required**
 * `--output_folder` - output audio folder. **Required**
 * `--cpu` - choose CPU instead of GPU for processing. Can be very slow.
-* `--overlap_large` - overlap of splitted audio for light models. Closer to 1.0 - slower, but better quality. Default: 0.6.
-* `--overlap_small` - overlap of splitted audio for heavy models. Closer to 1.0 - slower, but better quality. Default: 0.5.
+* `--overlap_large` - overlap of splitted audio for light models. Closer to 1.0 - slower, but better quality. Default: 1.
+* `--overlap_small` - overlap of splitted audio for heavy models. Closer to 1.0 - slower, but better quality. Default: 1.
 * `--single_onnx` - only use single ONNX model for vocals. Can be useful if you have not enough GPU memory.
 * `--chunk_size` - chunk size for ONNX models. Set lower to reduce GPU memory consumption. Default: 1000000.
 * `--large_gpu` - it will store all models on GPU for faster processing of multiple audio files. Requires at least 11 GB of free GPU memory.
@@ -42,7 +42,7 @@ Quality comparison with best separation models performed on [MultiSong Dataset](
 
 ## GUI
 
-![image](https://github.com/user-attachments/assets/72e99ccb-3daf-4380-b9b0-af93f0fe375c)
+![Capture d’écran 2024-10-07 091339](https://github.com/user-attachments/assets/67fa480a-ae57-4e07-a3c7-ad4e935c1f98)
 
 * Script for GUI (based on PyQt6): [gui.py](gui.py).
 * Program will download all needed neural net models from internet at the first run.
